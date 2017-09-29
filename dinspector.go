@@ -29,13 +29,20 @@ type ItemVersion struct {
 	PackagesVersions string `json:"packages_versions,omitempty"`
 }
 
+type ItemNotFound struct {
+	Domain string `json:"domain"`
+	Kind   string `json:"type"`
+	Path   string `json:"path"`
+}
+
 type ItemVersionDoc struct {
-	ID         string        `json:"_id"`
-	Rev        string        `json:"_rev,omitempty"`
-	DocType    string        `json:"type"`
-	DocSubType string        `json:"sub_type"`
-	Hostname   string        `json:"hostname"`
-	Items      []ItemVersion `json:"items"`
+	ID            string         `json:"_id"`
+	Rev           string         `json:"_rev,omitempty"`
+	DocType       string         `json:"type"`
+	DocSubType    string         `json:"sub_type"`
+	Hostname      string         `json:"hostname"`
+	Items         []ItemVersion  `json:"items"`
+	ItemsNotFound []ItemNotFound `json:"items_not_found"`
 }
 
 type Inspector struct {
@@ -43,7 +50,8 @@ type Inspector struct {
 	db              kivik.DB
 	scriptsPath     string
 	isDryRunVerbose bool
-	itemVersions    []ItemVersion
+	itemsVersion    []ItemVersion
+	itemsNotFound   []ItemNotFound
 }
 
 func (inspector *Inspector) Init() {
@@ -134,7 +142,15 @@ func (inspector *Inspector) checkWebVersion(item ItemWithSubKind) {
 		if err != nil {
 			if strings.Index(fmt.Sprint(err), "chdir") >= 0 {
 				pass = false
-				fmt.Printf("!chdir not found:%s\n", item.subLoc)
+				if inspector.isDryRunVerbose {
+					fmt.Printf("!chdir not found:%s\n", item.subLoc)
+				}
+				newItemNotFound := ItemNotFound{
+					Domain: item.id,
+					Kind:   item.subKind,
+					Path:   item.subLoc,
+				}
+				inspector.itemsNotFound = append(inspector.itemsNotFound, newItemNotFound)
 			} else {
 				panic(err)
 			}
@@ -155,19 +171,20 @@ func (inspector *Inspector) checkWebVersion(item ItemWithSubKind) {
 			if len(versionParts) == 2 {
 				newItemVersion.PackagesVersions = versionParts[1]
 			}
-			inspector.itemVersions = append(inspector.itemVersions, newItemVersion)
+			inspector.itemsVersion = append(inspector.itemsVersion, newItemVersion)
 		}
 	}
 }
 
 func (inspector *Inspector) putItemVersionDoc(id string, rev string, hostname string) {
 	itemVersionDoc := ItemVersionDoc{
-		ID:         id,
-		Rev:        rev,
-		Hostname:   hostname,
-		DocType:    "inspector",
-		DocSubType: "web",
-		Items:      inspector.itemVersions,
+		ID:            id,
+		Rev:           rev,
+		Hostname:      hostname,
+		DocType:       "inspector",
+		DocSubType:    "web",
+		Items:         inspector.itemsVersion,
+		ItemsNotFound: inspector.itemsNotFound,
 	}
 	_, err := inspector.db.Put(context.TODO(), id, itemVersionDoc)
 	if err != nil {
@@ -177,7 +194,7 @@ func (inspector *Inspector) putItemVersionDoc(id string, rev string, hostname st
 }
 
 func (inspector *Inspector) printWebVersions() {
-	for _, item := range inspector.itemVersions {
+	for _, item := range inspector.itemsVersion {
 		versions := item.Version
 		if item.PackagesVersions != "" {
 			versions = versions + "; " + item.PackagesVersions
