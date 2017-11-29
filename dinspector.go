@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -12,6 +13,20 @@ import (
 	_ "github.com/flimzy/kivik/driver/couchdb"
 	"gopkg.in/ini.v1"
 )
+
+func IsEmptyDir(name string) (bool, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	_, err = f.Readdirnames(1)
+	if err == io.EOF {
+		return true, nil
+	}
+	return false, err // not empty or other error
+}
 
 type ItemWithSubKind struct {
 	id      string
@@ -134,7 +149,8 @@ func (inspector *Inspector) processWebItems() {
 
 func (inspector *Inspector) checkWebVersion(item ItemWithSubKind) {
 	scriptPath := fmt.Sprint(inspector.scriptsPath, "/", item.subKind, ".sh")
-	if _, err := os.Stat(scriptPath); !os.IsNotExist(err) {
+	isEmptySubLocDir, _ := IsEmptyDir(strings.TrimSpace(item.subLoc))
+	if _, err := os.Stat(scriptPath); !os.IsNotExist(err) && !isEmptySubLocDir {
 		cmd := exec.Command(scriptPath)
 		cmd.Dir = strings.TrimSpace(item.subLoc)
 		versionOutput, err := cmd.Output()
