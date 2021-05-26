@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/flimzy/kivik"
-	_ "github.com/flimzy/kivik/driver/couchdb"
+	kivik "github.com/go-kivik/kivik/v3"
+	_ "github.com/go-kivik/couchdb/v3" // The CouchDB driver
 	"gopkg.in/ini.v1"
 )
 
@@ -91,25 +91,16 @@ func (inspector *Inspector) Init() {
 	inspector.isDryRunVerbose = *isDryRunVerbose
 
 	// db
-	client, err := kivik.New(context.TODO(), "couch", cfg.Section("couchdb").Key("uri").String())
+	client, err := kivik.New("couch", cfg.Section("couchdb").Key("uri").String())
 	if err != nil {
 		panic(err)
 	}
-	db, err := client.DB(context.TODO(), cfg.Section("couchdb").Key("db").String())
-	if err != nil {
-		panic(err)
-	}
+	db := client.DB(context.TODO(), cfg.Section("couchdb").Key("db").String())
 	inspector.db = *db
 }
 
 func (inspector *Inspector) getDoc(docContainer interface{}, ID string) error {
-	row, err := inspector.db.Get(context.TODO(), ID)
-	if err != nil {
-		return err
-	}
-	if err = row.ScanDoc(docContainer); err != nil {
-		return err
-	}
+	row := inspector.db.Get(context.TODO(), ID)
 	return nil
 }
 
@@ -225,7 +216,7 @@ func (inspector *Inspector) saveWebVersions() {
 		panic(err)
 	}
 	id := fmt.Sprintf("%s-%s", "inspector", hostname)
-	docRev, err := inspector.db.Rev(context.TODO(), id)
+	_, docRev, err := inspector.db.GetMeta(context.TODO(), id)
 	if err != nil {
 		if kivik.StatusCode(err) == kivik.StatusNotFound {
 			inspector.putItemVersionDoc(id, "", hostname)
