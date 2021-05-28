@@ -5,12 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 
-	kivik "github.com/go-kivik/kivik/v3"
 	_ "github.com/go-kivik/couchdb/v3" // The CouchDB driver
+	kivik "github.com/go-kivik/kivik/v3"
 	"gopkg.in/ini.v1"
 )
 
@@ -97,11 +98,6 @@ func (inspector *Inspector) Init() {
 	}
 	db := client.DB(context.TODO(), cfg.Section("couchdb").Key("db").String())
 	inspector.db = *db
-}
-
-func (inspector *Inspector) getDoc(docContainer interface{}, ID string) error {
-	row := inspector.db.Get(context.TODO(), ID)
-	return nil
 }
 
 func (inspector *Inspector) processWebItems() {
@@ -218,7 +214,7 @@ func (inspector *Inspector) saveWebVersions() {
 	id := fmt.Sprintf("%s-%s", "inspector", hostname)
 	_, docRev, err := inspector.db.GetMeta(context.TODO(), id)
 	if err != nil {
-		if kivik.StatusCode(err) == kivik.StatusNotFound {
+		if kivik.StatusCode(err) == http.StatusNotFound {
 			inspector.putItemVersionDoc(id, "", hostname)
 		} else {
 			panic(err)
