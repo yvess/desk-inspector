@@ -9,10 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"encoding/json"
 
-	_ "github.com/go-kivik/couchdb/v3" // The CouchDB driver
+	couchdb "github.com/go-kivik/couchdb/v3" // The CouchDB driver
 	kivik "github.com/go-kivik/kivik/v3"
 	"gopkg.in/ini.v1"
+	"github.com/go-resty/resty/v2"
 )
 
 func IsEmptyDir(name string) (bool, error) {
@@ -96,41 +98,65 @@ func (inspector *Inspector) Init() {
 	if err != nil {
 		panic(err)
 	}
+	client.Authenticate(context.TODO(), couchdb.BasicAuth("inspector", "GHAiOuMR10Ji"))
 	db := client.DB(context.TODO(), cfg.Section("couchdb").Key("db").String())
 	inspector.db = *db
 }
 
 func (inspector *Inspector) processWebItems() {
-	rows, err := inspector.db.Query(
-		context.TODO(), "_design/desk_drawer", "_view/service_type",
-		map[string]interface{}{"startkey": `["web"]`, "endkey": `["web"]`},
-	)
+
+	type Included_type struct {
+		Itemid string `json:"itemid"`
+		ItemType string `json:"itemType"`
+		ItemSubType string `json:"itemSubType"`
+		ItemSubLoc string `json:"itemSubLoc"`
+	}
+
+	type Value_type struct {
+		_Id string `json:"_id"`
+		Included_service_items []Included_type `json:"included_service_items"`
+	}
+
+	type Rows_type struct {
+		Id	string `json:"id"`
+		Key []string `json:"key"`
+		Value Value_type `json:"value"`
+	}
+
+	type Result_Type struct {
+		Total_rows int `json:"total_rows"` 
+		Offset	int `json:"offset"`
+		Rows []Rows_type `json:"rows"`
+	}
+
+	resty_client := resty.New()
+
+	resp, err := resty_client.R().
+			SetQueryParams(map[string]string{
+					"startkey": `["web"]`,
+					"endkey": `["web"]`,
+			}).
+      ForceContentType("application/json").
+			SetResult(Result_Type{}).
+			Get("http://inspector:GHAiOuMR10Ji@10.0.0.100:5984/desk_drawer/_design/desk_drawer/_view/service_type")
 	if err != nil {
 		panic(err)
 	}
-	for rows.Next() {
-		var doc interface{}
-		if err := rows.ScanValue(&doc); err != nil {
-			panic(err)
+
+	stringed := resp.String()
+	byt := []byte(stringed)
+
+	var final Result_Type
+	json.Unmarshal(byt, &final)
+
+	for _, row_content := range final.Rows {
+		item := ItemWithSubKind{
+			id:      row_content.Value.Included_service_items[0].Itemid,
+			kind:    row_content.Value.Included_service_items[0].ItemType,
+			subKind: row_content.Value.Included_service_items[0].ItemSubType,
+			subLoc:  strings.TrimSpace(row_content.Value.Included_service_items[0].ItemSubLoc),
 		}
-		docMap := doc.(map[string]interface{})
-		if included_service_items, ok := docMap["included_service_items"]; ok {
-			for _, itemFromJson := range included_service_items.([]interface{}) {
-				itemMap := itemFromJson.(map[string]interface{})
-				if itemMap["itemSubType"] != nil && itemMap["itemSubLoc"] != nil {
-					item := ItemWithSubKind{
-						id:      itemMap["itemid"].(string),
-						kind:    itemMap["itemType"].(string),
-						subKind: itemMap["itemSubType"].(string),
-						subLoc:  strings.TrimSpace(itemMap["itemSubLoc"].(string)),
-					}
-					inspector.checkWebVersion(item)
-				}
-			}
-		}
-	}
-	if rows.Err() != nil {
-		panic(rows.Err())
+		inspector.checkWebVersion(item)
 	}
 }
 
